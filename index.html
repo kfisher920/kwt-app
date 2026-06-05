@@ -1655,6 +1655,10 @@ function doAddEx(idx){
   added.push({name, sets:3, reps:'12', rest:60, note:'', isAdded:true, _uid:uid});
   localStorage.setItem(key, JSON.stringify(added));
   document.getElementById('addExOv')?.remove();
+  // Ensure carDayDate matches the tk we just saved to, so renderDayDetail
+  // reads from the correct key (carDayDate mismatch was causing exercises to disappear)
+  carDayDate = tk;
+  _curD = d; _curTk = tk;
   renderDayDetail(d);
 }
 
@@ -1672,6 +1676,8 @@ function doAddCustomEx(){
   added.push({name, sets, reps, rest, note:'', isAdded:true, isCustom:true, _uid:uid});
   localStorage.setItem(key, JSON.stringify(added));
   document.getElementById('addExOv')?.remove();
+  carDayDate = tk;
+  _curD = d; _curTk = tk;
   renderDayDetail(d);
 }
 
