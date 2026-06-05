@@ -1636,6 +1636,15 @@ function openAddExModal(d, tk){
   document.body.appendChild(ov);
 }
 
+// ── EXERCISE ADD/FILTER HELPERS ─────────────────────────────────────────
+function filterAddEx(){
+  const q = (document.getElementById('addExSearch')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('#addExList > div').forEach(row => {
+    row.style.display = (!q || row.innerText.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
+
 function doAddEx(idx){
   const name = window._aeNames ? window._aeNames[idx] : null;
   const d = window._aeD; const tk = window._aeTk;
@@ -1666,49 +1675,14 @@ function doAddCustomEx(){
   renderDayDetail(d);
 }
 
-function filterAddEx(){
-  const q = (document.getElementById('addExSearch')?.value || '').toLowerCase().trim();
-  document.querySelectorAll('#addExList > div').forEach(row => {
-    row.style.display = (!q || row.innerText.toLowerCase().includes(q)) ? '' : 'none';
-  });
-}
 
 
-function filterAddEx(){
-  const q=document.getElementById('addExSearch')?.value?.toLowerCase()||'';
-  document.querySelectorAll('#addExList > div').forEach(row=>{
-    const name=row.querySelector('div > div')?.textContent?.toLowerCase()||'';
-    row.style.display=(!q||name.includes(q))?'':'none';
-  });
-}
 
-function addTodayEx(d, tk, name){
-  const addedKey=`added-exs-${tk}-${d}`;
-  const added=JSON.parse(localStorage.getItem(addedKey)||'[]');
-  // Allow adding even if same name exists in plan — it's a separate added entry
-  const uid='added-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
-  const newEx={name, sets:3, reps:'12', rest:60, note:'', isAdded:true, _uid:uid};
-  added.push(newEx);
-  localStorage.setItem(addedKey,JSON.stringify(added));
-  document.getElementById('addExOv')?.remove();
-  renderDayDetail(d);
-}
 
-function addCustomTodayEx(d, tk){
-  const name=document.getElementById('customExName')?.value?.trim();
-  const sets=parseInt(document.getElementById('customExSets')?.value)||3;
-  const reps=document.getElementById('customExReps')?.value||'12';
-  const rest=parseInt(document.getElementById('customExRest')?.value)||60;
-  if(!name) return alert('Please enter an exercise name.');
-  const uid='added-'+Date.now()+'-'+Math.random().toString(36).slice(2,6);
-  const newEx={name, sets, reps, rest, note:'', isAdded:true, isCustom:true, _uid:uid};
-  const addedKey=`added-exs-${tk}-${d}`;
-  const added=JSON.parse(localStorage.getItem(addedKey)||'[]');
-  added.push(newEx);
-  localStorage.setItem(addedKey,JSON.stringify(added));
-  document.getElementById('addExOv')?.remove();
-  renderDayDetail(d);
-}
+
+
+
+
 
 
 // ── DRAG TO REORDER EXERCISES ─────────────────────────────────────────────
