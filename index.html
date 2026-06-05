@@ -1441,7 +1441,7 @@ function renderDayDetail(d){
 
     // ── EXERCISE LIST ─────────────────────────────────────────────────────
     html+=`<div class="ex-list" id="exList">`;
-    s.exercises.forEach((ex,ei)=>{
+    allExs.forEach((ex,ei)=>{
       const exd=getEx(ex.name);
       const p=parseInt(ex.sets)||3;
       let lc=0;for(let j=0;j<p+10;j++){if(setData[`${tk}-${ei}-${j}`]&&setData[`${tk}-${ei}-${j}`].done)lc++;}
