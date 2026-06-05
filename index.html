@@ -132,8 +132,8 @@ input:focus,select:focus,textarea:focus{outline:none;}
 
 /* Main row — always visible */
 .ex-row{display:flex;align-items:stretch;cursor:pointer;min-height:72px;}
-.drag-handle{width:32px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--mu);font-size:18px;cursor:grab;touch-action:none;-webkit-user-select:none;user-select:none;}
-.drag-handle:active{cursor:grabbing;color:var(--grn);}
+.drag-handle{width:28px;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:var(--mu3);font-size:16px;cursor:grab;touch-action:none;}
+.drag-handle:active{cursor:grabbing;}
 .ex-card.dragging{opacity:0.4;border:1.5px dashed var(--acc);}
 .ex-card.drag-over{border-top:2px solid var(--grn);}
 .ex-accent{width:3px;flex-shrink:0;border-radius:0;}
@@ -934,7 +934,17 @@ function showWaterQuickAdd(){
   </div>`;
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
   document.body.appendChild(ov);
-  // Clicks on .add-ex-item are caught by the global document handler above
+  // Delegated click: catches taps on any child of add-ex-item
+  const listEl=ov.querySelector('#addExList');
+  if(listEl){
+    listEl.addEventListener('click',e=>{
+      const row=e.target.closest('.add-ex-item');
+      if(!row)return;
+      const idx=parseInt(row.dataset.exidx);
+      const name=Object.keys(EX_DB)[idx];
+      if(name) addTodayEx(d,freshTk,name);
+    });
+  }
 }
 
 function buildWaterSection(){
@@ -1313,23 +1323,8 @@ function selCarDay(d){
 }
 
 // ── DAY DETAIL ───────────────────────────────────────────────────────────
-// ── GLOBAL DAY CONTEXT — updated every renderDayDetail call ─────────────
-// Used by onclick handlers for add/remove/reorder (avoids template literal escaping)
 var _curD = null;
 var _curTk = null;
-
-// ── GLOBAL ACTION DISPATCHER ──────────────────────────────────────────────
-// iOS Safari doesn't bubble clicks from divs to document.
-// All exercise actions go through this single function called via onclick.
-function exAction(action, param){
-  if(_curD === null || !_curTk) return;
-  if(action === 'remove'){
-    removeTodayEx(_curD, _curTk, param);
-  } else if(action === 'add'){
-    const name = Object.keys(EX_DB)[parseInt(param)];
-    if(name){ addTodayEx(_curD, _curTk, name); document.getElementById('addExOv')?.remove(); }
-  }
-}
 
 function renderDayDetail(d){
   const s=SCH[d],td=dow(),isT=d===td;
@@ -1337,7 +1332,6 @@ function renderDayDetail(d){
   const tk=(workoutActive&&workoutSessionDate&&d===td)?workoutSessionDate
            :(carDayDate&&d!==td)?carDayDate
            :todayKey();
-  // Update globals so all onclick handlers have current context
   _curD = d;
   _curTk = tk;
   const dayLbl=isT?`Today — ${DN[d]}`:d===((td+1)%7)?`Tomorrow — ${DN[d]}`:DN[d];
@@ -1454,18 +1448,17 @@ function renderDayDetail(d){
       const accentC=exd?(MC[exd.target]||'#5F65D9'):'#5F65D9';
       const durEst=EX_DUR[ex.name]||'~5 min';
       const isDone3=lc>=3;
-      html+=`<div class="ex-card${lc>0?' logged':''}${isDone3?' done-3':''}" id="exc-${d}-${ei}" data-muscle="${exd?exd.target:''}"
-        draggable="true"
-        ondragstart="dragStart(event,${ei})"
-        ondragover="dragOver(event,${ei})"
-        ondrop="dragDrop(event,${ei})"
-        ondragend="dragEnd(event)">
-        <div class="ex-row" onclick="toggleEx(${d},${ei})">
+      html+=`<div class="ex-card${lc>0?' logged':''}${isDone3?' done-3':''}" id="exc-${d}-${ei}" data-muscle="${exd?exd.target:''}">
+        <div class="ex-row" onclick="toggleEx(${d},${ei})"
+          draggable="true" data-d="${d}" data-ei="${ei}" data-tk="${tk}"
+          ondragstart="dragStart(event,${d},${ei},'${tk}')"
+          ondragover="dragOver(event,${d},${ei})"
+          ondrop="dragDrop(event,${d},${ei},'${tk}')"
+          ondragend="dragEnd(event,${d},${ei})">
           <div class="drag-handle" onclick="event.stopPropagation()"
-            ontouchstart="touchDragStart(event,${ei})"
-            ontouchmove="touchDragMove(event)"
-            ontouchend="touchDragEnd(event,${ei})"
-            style="cursor:grab;touch-action:none;padding:12px 10px;font-size:18px;color:var(--mu)">≡</div>
+            ontouchstart="touchDragStart(event,${d},${ei},'${tk}')"
+            ontouchmove="touchDragMove(event,${d},${ei})"
+            ontouchend="touchDragEnd(event,${d},${ei},'${tk}')">≡</div>
           <div class="ex-accent" style="background:${accentC}"></div>
           <div class="ex-img-box" style="overflow:hidden;border-radius:var(--r-xs)">
             ${exd?`<img src="${exd.gif}" alt="${ex.name}" loading="lazy" onerror="this.src='${exd.img}'" style="width:100%;height:100%;object-fit:contain;display:block;background:#fff;"/>`
@@ -1482,7 +1475,7 @@ function renderDayDetail(d){
           </div>
           <div class="ex-expand-btn" style="display:flex;flex-direction:column;gap:4px;align-items:center;padding:8px 10px 8px 4px">
             <div class="ex-expand-circle" id="echev-${d}-${ei}" onclick="event.stopPropagation();toggleEx(${d},${ei})">›</div>
-            <button onclick="event.stopPropagation();window._rmuid=this.getAttribute('data-uid');exAction('remove',window._rmuid)" data-uid="${ex._uid}" style="width:22px;height:22px;border-radius:50%;background:var(--red-d);color:var(--red);font-size:11px;display:flex;align-items:center;justify-content:center;opacity:0.7;cursor:pointer" title="Remove today">✕</button>
+            <button class="rm-ex-btn" data-d="${d}" data-tk="${tk}" data-uid="${ex._uid}" style="width:22px;height:22px;border-radius:50%;background:var(--red-d);color:var(--red);font-size:11px;display:flex;align-items:center;justify-content:center;opacity:0.7" title="Remove today">✕</button>
           </div>
         </div>
         <div class="ex-body" id="exb-${d}-${ei}">
@@ -1501,7 +1494,7 @@ function renderDayDetail(d){
 
     // ── ADD EXERCISE BUTTON ───────────────────────────────────────────────
     html+=`<div style="padding:8px 0 4px">
-      <button onclick="openAddExModal(_curD,_curTk)" style="width:100%;padding:13px;background:var(--s1);border:0.5px dashed var(--bd2);cursor:pointer;border-radius:var(--r-md);color:var(--acc);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px">
+      <button onclick="openAddExModal(_curD,_curTk)" style="width:100%;padding:13px;background:var(--s1);border:0.5px dashed var(--bd2);border-radius:var(--r-md);color:var(--acc);font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:8px">
         <span style="font-size:16px">+</span> Add Exercise to Today
       </button>
     </div>`;
@@ -1602,57 +1595,84 @@ function removeTodayEx(d, tk, uid){
 
 // Open modal to add exercise to today
 function openAddExModal(d, tk){
-  // Use globals as authoritative source — always current
-  d=_curD!==null?_curD:d;
-  const freshTk=_curTk||tk||todayKey();
-  const ov=document.createElement('div');
-  ov.className='modal-overlay show';
-  ov.id='addExOv';
-
-  // Build exercise list from EX_DB
-  const exNames=Object.keys(EX_DB);
-  let listHtml='';
-  exNames.forEach((name,i)=>{
-    const exd=EX_DB[name];
-    const ac=MC[exd.target]||'#5F65D9';
-    // Use data attribute — avoids ALL quote/escape issues with exercise names
-    const safeIdx=i; // use index lookup instead of name in onclick
-    listHtml+=`<div class="add-ex-item" data-exidx="${safeIdx}" onclick="exAction('add',${safeIdx});document.getElementById('addExOv')?.remove()" style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:0.5px solid var(--bd);cursor:pointer;-webkit-tap-highlight-color:rgba(189,242,75,0.2)">
-      <div style="width:44px;height:44px;border-radius:var(--r-xs);overflow:hidden;background:#fff;flex-shrink:0;display:flex;align-items:center;justify-content:center">
-        <img src="${exd.gif}" style="width:100%;height:100%;object-fit:contain" loading="lazy"/>
-      </div>
-      <div style="flex:1;min-width:0">
-        <div style="font-size:13px;font-weight:600">${name}</div>
-        <div style="margin-top:3px"><span style="font-size:10px;font-weight:600;padding:2px 7px;border-radius:20px;background:${ac}22;color:${ac}">${exd.target}</span></div>
-      </div>
-      <div style="color:var(--grn);font-size:20px;font-weight:300;flex-shrink:0">+</div>
+  window._aeD = (_curD !== null) ? _curD : d;
+  window._aeTk = _curTk || tk || todayKey();
+  window._aeNames = Object.keys(EX_DB);
+  const existing = document.getElementById('addExOv');
+  if(existing) existing.remove();
+  const ov = document.createElement('div');
+  ov.className = 'modal-overlay show';
+  ov.id = 'addExOv';
+  let listHtml = '';
+  window._aeNames.forEach((name, idx) => {
+    const exd = EX_DB[name];
+    const ac = MC[exd.target] || '#5F65D9';
+    listHtml += `<div onclick="doAddEx(${idx})" style="display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:0.5px solid var(--bd);cursor:pointer;-webkit-tap-highlight-color:rgba(189,242,75,0.15);user-select:none;-webkit-user-select:none">
+      <div style="width:48px;height:48px;border-radius:10px;overflow:hidden;background:#fff;flex-shrink:0"><img src="${exd.gif}" style="width:100%;height:100%;object-fit:contain" loading="lazy"/></div>
+      <div style="flex:1;min-width:0"><div style="font-size:13px;font-weight:600">${name}</div>
+        <div style="margin-top:4px"><span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:${ac}22;color:${ac}">${exd.target}</span></div></div>
+      <div style="color:var(--grn);font-size:22px;font-weight:300;padding-right:4px">+</div>
     </div>`;
   });
-
-  ov.innerHTML=`<div class="modal-sheet" style="max-height:88dvh">
+  ov.innerHTML = `<div class="modal-sheet" style="max-height:90dvh">
     <div class="modal-handle"></div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
-      <input type="text" id="addExSearch" class="inp" placeholder="Search exercises..." style="flex:1;font-size:14px;padding:10px 14px" oninput="filterAddEx()">
-      <button class="modal-close-btn" onclick="document.getElementById('addExOv').remove()">✕</button>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+      <input type="text" id="addExSearch" class="inp" placeholder="Search exercises..." style="flex:1;font-size:14px;padding:11px 14px" oninput="filterAddEx()">
+      <button onclick="document.getElementById('addExOv').remove()" style="width:32px;height:32px;border-radius:50%;background:var(--s3);color:var(--mu);font-size:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0;cursor:pointer;border:none">✕</button>
     </div>
-    <div id="addExList" style="overflow-y:auto;max-height:60dvh;-webkit-overflow-scrolling:touch">
-      ${listHtml}
-    </div>
-    <div style="padding-top:12px;border-top:0.5px solid var(--bd);margin-top:8px">
-      <div style="font-size:12px;color:var(--mu);margin-bottom:8px">Or add a custom exercise:</div>
-      <input id="customExName" class="inp" placeholder="Exercise name" style="margin-bottom:8px;font-size:14px;padding:10px 14px">
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:8px">
-        <input id="customExSets" type="number" class="inp" placeholder="Sets" style="font-size:13px;padding:9px 10px;text-align:center">
-        <input id="customExReps" class="inp" placeholder="Reps" style="font-size:13px;padding:9px 10px;text-align:center">
-        <input id="customExRest" type="number" class="inp" placeholder="Rest (s)" style="font-size:13px;padding:9px 10px;text-align:center">
+    <div id="addExList" style="overflow-y:auto;max-height:50dvh;-webkit-overflow-scrolling:touch">${listHtml}</div>
+    <div style="border-top:0.5px solid var(--bd);padding-top:14px;margin-top:10px">
+      <div style="font-size:11px;color:var(--mu);font-weight:700;text-transform:uppercase;letter-spacing:0.07em;margin-bottom:10px">Custom Exercise</div>
+      <input id="customExName" class="inp" placeholder="Exercise name" style="margin-bottom:8px;font-size:14px;padding:11px 14px">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px">
+        <input id="customExSets" type="number" class="inp" placeholder="Sets" style="font-size:13px;padding:10px;text-align:center">
+        <input id="customExReps" class="inp" placeholder="Reps" style="font-size:13px;padding:10px;text-align:center">
+        <input id="customExRest" type="number" class="inp" placeholder="Rest(s)" style="font-size:13px;padding:10px;text-align:center">
       </div>
-      <button class="btn-p" style="width:100%" onclick="addCustomTodayEx(_curD,_curTk)">Add Custom Exercise</button>
+      <button onclick="doAddCustomEx()" class="btn-p" style="width:100%;padding:14px;font-size:14px;cursor:pointer">+ Add Custom Exercise</button>
     </div>
   </div>`;
-  ov.onclick=e=>{if(e.target===ov)ov.remove();};
+  ov.onclick = e => { if(e.target === ov) ov.remove(); };
   document.body.appendChild(ov);
-  // Clicks on .add-ex-item are caught by the global document handler above
 }
+
+function doAddEx(idx){
+  const name = window._aeNames ? window._aeNames[idx] : null;
+  const d = window._aeD; const tk = window._aeTk;
+  if(!name || d === null || d === undefined || !tk){ console.error('[KWT] doAddEx bad context',{name,d,tk}); return; }
+  const key = 'added-exs-' + tk + '-' + d;
+  const added = JSON.parse(localStorage.getItem(key) || '[]');
+  const uid = 'added-' + Date.now();
+  added.push({name, sets:3, reps:'12', rest:60, note:'', isAdded:true, _uid:uid});
+  localStorage.setItem(key, JSON.stringify(added));
+  document.getElementById('addExOv')?.remove();
+  renderDayDetail(d);
+}
+
+function doAddCustomEx(){
+  const name = document.getElementById('customExName')?.value?.trim();
+  const sets = parseInt(document.getElementById('customExSets')?.value) || 3;
+  const reps = document.getElementById('customExReps')?.value || '12';
+  const rest = parseInt(document.getElementById('customExRest')?.value) || 60;
+  const d = window._aeD; const tk = window._aeTk;
+  if(!name){ alert('Please enter an exercise name.'); return; }
+  if(d === null || d === undefined || !tk){ console.error('[KWT] doAddCustomEx bad context',{d,tk}); return; }
+  const key = 'added-exs-' + tk + '-' + d;
+  const added = JSON.parse(localStorage.getItem(key) || '[]');
+  const uid = 'added-' + Date.now();
+  added.push({name, sets, reps, rest, note:'', isAdded:true, isCustom:true, _uid:uid});
+  localStorage.setItem(key, JSON.stringify(added));
+  document.getElementById('addExOv')?.remove();
+  renderDayDetail(d);
+}
+
+function filterAddEx(){
+  const q = (document.getElementById('addExSearch')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('#addExList > div').forEach(row => {
+    row.style.display = (!q || row.innerText.toLowerCase().includes(q)) ? '' : 'none';
+  });
+}
+
 
 function filterAddEx(){
   const q=document.getElementById('addExSearch')?.value?.toLowerCase()||'';
@@ -1711,46 +1731,40 @@ function getExOrder(d,tk){
   const savedOrder=JSON.parse(localStorage.getItem(orderKey)||'null');
   if(!savedOrder)return allExs;
   const reordered=[];
-  savedOrder.forEach(key=>{
-    // Match by _uid first, then by name as fallback
-    const ex=allExs.find(e=>e._uid===key||e.name===key);
-    if(ex&&!reordered.includes(ex))reordered.push(ex);
-  });
-  // Append any items not yet in saved order
-  allExs.forEach(e=>{if(!reordered.includes(e))reordered.push(e);});
+  savedOrder.forEach(uid=>{const ex=allExs.find(e=>e._uid===uid);if(ex)reordered.push(ex);});
+  // Append any new items not yet in saved order
+  allExs.forEach(e=>{if(!reordered.find(r=>r._uid===e._uid))reordered.push(e);});
   return reordered;
 }
 
 function saveExOrder(d,tk,exs){
   // Save order as array of _uids (stable identifiers)
-  localStorage.setItem(`order-exs-${tk}-${d}`,JSON.stringify(exs.map(e=>e._uid||e.name)));
+  localStorage.setItem(`order-exs-${tk}-${d}`,JSON.stringify(exs.map(e=>e._uid)));
 }
 
-function dragStart(e,ei){
+function dragStart(e,d,ei,tk){
   dragSrcIdx=ei;
   e.currentTarget.classList.add('dragging');
   e.dataTransfer.effectAllowed='move';
-  e.dataTransfer.setData('text/plain',String(ei));
+  e.dataTransfer.setData('text/plain',ei);
 }
-function dragOver(e,ei){
+function dragOver(e,d,ei){
   e.preventDefault();
-  e.stopPropagation();
   e.dataTransfer.dropEffect='move';
-  document.querySelectorAll('#exList .ex-card').forEach(c=>c.classList.remove('drag-over'));
-  // e.currentTarget IS the ex-card now (drag events on ex-card)
-  e.currentTarget.classList.add('drag-over');
+  document.querySelectorAll('.ex-card').forEach(c=>c.classList.remove('drag-over'));
+  e.currentTarget.closest('.ex-card')?.classList.add('drag-over');
 }
-function dragDrop(e,ei){
+function dragDrop(e,d,ei,tk){
   e.preventDefault();
   if(dragSrcIdx===null||dragSrcIdx===ei)return;
-  const exs=getExOrder(_curD,_curTk);
+  const exs=getExOrder(d,tk);
   const [moved]=exs.splice(dragSrcIdx,1);
   exs.splice(ei,0,moved);
-  saveExOrder(_curD,_curTk,exs);
+  saveExOrder(d,tk,exs); // saveExOrder now uses _uid internally
   dragSrcIdx=null;
-  renderDayDetail(_curD);
+  renderDayDetail(d);
 }
-function dragEnd(e){
+function dragEnd(e,d,ei){
   dragSrcIdx=null;
   document.querySelectorAll('.ex-card').forEach(c=>{
     c.classList.remove('dragging');c.classList.remove('drag-over');
@@ -1758,10 +1772,10 @@ function dragEnd(e){
 }
 
 // Touch drag support for iOS
-function touchDragStart(e,ei){
+function touchDragStart(e,d,ei,tk){
   e.stopPropagation();
   touchDragIdx=ei;
-  const card=e.currentTarget.closest('.ex-card')||e.currentTarget;
+  const card=e.currentTarget.closest('.ex-card');
   if(card){
     touchClone=card.cloneNode(true);
     touchClone.style.cssText=`position:fixed;opacity:0.8;pointer-events:none;width:${card.offsetWidth}px;z-index:999;left:${card.getBoundingClientRect().left}px;top:${card.getBoundingClientRect().top}px`;
@@ -1769,10 +1783,8 @@ function touchDragStart(e,ei){
     card.classList.add('dragging');
   }
 }
-function touchDragMove(e){
-  if(touchDragIdx===null)return;
+function touchDragMove(e,d,ei){
   e.preventDefault();
-  e.stopPropagation();
   if(!touchClone)return;
   const t=e.touches[0];
   touchClone.style.left=t.clientX-touchClone.offsetWidth/2+'px';
@@ -1783,7 +1795,7 @@ function touchDragMove(e){
   const targetCard=el?.closest('.ex-card');
   if(targetCard&&!targetCard.classList.contains('dragging'))targetCard.classList.add('drag-over');
 }
-function touchDragEnd(e,ei){
+function touchDragEnd(e,d,ei,tk){
   if(touchClone){touchClone.remove();touchClone=null;}
   document.querySelectorAll('.ex-card').forEach(c=>{c.classList.remove('dragging');c.classList.remove('drag-over');});
   if(touchDragIdx===null)return;
@@ -1794,14 +1806,14 @@ function touchDragEnd(e,ei){
     const cards=[...document.querySelectorAll('#exList .ex-card')];
     const targetIdx=cards.indexOf(targetCard);
     if(targetIdx>=0&&targetIdx!==touchDragIdx){
-      const exs=getExOrder(_curD,_curTk);
+      const exs=getExOrder(d,tk);
       const [moved]=exs.splice(touchDragIdx,1);
       exs.splice(targetIdx,0,moved);
-      saveExOrder(_curD,_curTk,exs);
+      saveExOrder(d,tk,exs);
     }
   }
   touchDragIdx=null;
-  renderDayDetail(_curD);
+  renderDayDetail(d);
 }
 
 // Filter exercises by muscle group
@@ -2014,7 +2026,17 @@ function openAddMini(d,tk){
   </div>`;
   ov.onclick=e=>{if(e.target===ov)ov.remove();};
   document.body.appendChild(ov);
-  // Clicks on .add-ex-item are caught by the global document handler above
+  // Delegated click: catches taps on any child of add-ex-item
+  const listEl=ov.querySelector('#addExList');
+  if(listEl){
+    listEl.addEventListener('click',e=>{
+      const row=e.target.closest('.add-ex-item');
+      if(!row)return;
+      const idx=parseInt(row.dataset.exidx);
+      const name=Object.keys(EX_DB)[idx];
+      if(name) addTodayEx(d,freshTk,name);
+    });
+  }
 }
 function saveCustomMini(d,tk){
   const name=document.getElementById('amN')?.value?.trim();
@@ -2619,6 +2641,17 @@ function openExDetail(name, target){
 }
 
 // ── INIT (FIX 6: cloud-first) ────────────────────────────────────────────
+// Delegated handler for remove exercise buttons (works even after re-render)
+document.getElementById('page-today').addEventListener('click', e=>{
+  const btn=e.target.closest('.rm-ex-btn');
+  if(!btn)return;
+  e.stopPropagation();
+  const d=parseInt(btn.dataset.d);
+  const tk=btn.dataset.tk;
+  const uid=btn.dataset.uid;
+  removeTodayEx(d,tk,uid);
+});
+
 // STEP 1: Render immediately from localStorage cache (instant, works offline)
 updateTopbar();buildCarousel();renderDayDetail(dow());
 
