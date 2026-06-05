@@ -767,6 +767,8 @@ async function loadCloud(){
     if(fls){foodLog={};fls.forEach(r=>{if(!foodLog[r.date])foodLog[r.date]=[];foodLog[r.date].push({name:r.name,serving:r.serving||'',cal:r.cal||0,pro:r.pro||0,carb:r.carb||0,fat:r.fat||0,_id:r.id});});ls('fl9',foodLog);}
     // Load water from set_data
     loadWaterFromSD();
+    // Load exercise customizations (add/remove/order) from set_data
+    loadExCustomizationsFromSD();
     console.log('[KWT] Cloud loaded | workouts:',workoutLog.length,'| weights:',weightLog.length,'| foods:',Object.keys(foodLog).length);
     return true;
   }catch(e){console.warn('[KWT] Cloud load failed:',e.message);return false;}
@@ -1572,6 +1574,35 @@ const EX_DUR={
 };
 
 // ── DAY-ONLY EXERCISE MANAGEMENT ─────────────────────────────────────────
+
+// Save all three exercise customization keys for a day to Supabase
+function saveExCustomizations(tk, d){
+  const addedKey   = `added-exs-${tk}-${d}`;
+  const removedKey = `removed-exs-${tk}-${d}`;
+  const orderKey   = `order-exs-${tk}-${d}`;
+  // Use sbSaveSD which upserts into set_data table
+  const added   = localStorage.getItem(addedKey);
+  const removed = localStorage.getItem(removedKey);
+  const order   = localStorage.getItem(orderKey);
+  if(added)   sbSaveSD(addedKey,   JSON.parse(added));
+  if(removed) sbSaveSD(removedKey, JSON.parse(removed));
+  if(order)   sbSaveSD(orderKey,   JSON.parse(order));
+}
+
+// Load exercise customizations from Supabase setData into localStorage
+// Called after cloud load completes
+function loadExCustomizationsFromSD(){
+  Object.keys(setData).forEach(key=>{
+    if(key.startsWith('added-exs-') || 
+       key.startsWith('removed-exs-') || 
+       key.startsWith('order-exs-')){
+      // setData[key] is already the parsed value — re-stringify for localStorage
+      localStorage.setItem(key, JSON.stringify(setData[key]));
+    }
+  });
+}
+
+
 
 // Remove an exercise from today only (doesn't affect plan)
 function removeTodayEx(d, tk, uid){
