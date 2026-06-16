@@ -752,26 +752,34 @@ async function sbSaveMini(key,data){
 }
 async function loadCloud(){
   if(!syncOnline)return false;
-  try{
-    const[ws,wts,sds,mls,fls]=await Promise.all([
-      sbF('workouts?order=date.desc&limit=200'),
-      sbF('weight_log?order=date.asc'),
-      sbF('set_data?limit=5000'),
-      sbF('mini_log?limit=2000'),
-      sbF('food_log?order=date.desc&limit=1000')
-    ]);
-    if(ws){workoutLog=ws.map(r=>({date:r.date,dayLabel:r.day_label,startTs:r.start_ts,endTs:r.end_ts,durationSec:r.duration_sec,exercises:r.exercises||[],isPast:r.is_past||false,_dbid:r.id}));ls('wlog9',workoutLog);}
-    if(wts){weightLog=wts.map(r=>({date:r.date,w:parseFloat(r.weight)}));ls('wt9',weightLog);}
-    if(sds){setData={};sds.forEach(r=>{setData[r.key]=r.data;});ls('sd9',setData);}
-    if(mls){miniLog={};mls.forEach(r=>{miniLog[r.key]={done:r.done||false,sets:safeJ(r.sets)||[]};}); ls('ml9',miniLog);}
-    if(fls){foodLog={};fls.forEach(r=>{if(!foodLog[r.date])foodLog[r.date]=[];foodLog[r.date].push({name:r.name,serving:r.serving||'',cal:r.cal||0,pro:r.pro||0,carb:r.carb||0,fat:r.fat||0,_id:r.id});});ls('fl9',foodLog);}
-    // Load water from set_data
-    loadWaterFromSD();
-    // Load exercise customizations (add/remove/order) from set_data
-    loadExCustomizationsFromSD();
-    console.log('[KWT] Cloud loaded | workouts:',workoutLog.length,'| weights:',weightLog.length,'| foods:',Object.keys(foodLog).length);
-    return true;
-  }catch(e){console.warn('[KWT] Cloud load failed:',e.message);return false;}
+  // Each table loads independently. One table failing must NOT blank the others.
+  const [wsR,wtsR,sdsR,mlsR,flsR]=await Promise.allSettled([
+    sbF('workouts?order=date.desc&limit=200'),
+    sbF('weight_log?order=date.asc'),
+    sbF('set_data?limit=5000'),
+    sbF('mini_log?limit=2000'),
+    sbF('food_log?order=date.desc&limit=1000')
+  ]);
+  const okVal=(res,label)=>{
+    if(res.status==='fulfilled')return res.value;
+    console.warn('[KWT] Cloud table failed:',label,res.reason&&res.reason.message);
+    return null;
+  };
+  const ws=okVal(wsR,'workouts'),wts=okVal(wtsR,'weight_log'),
+        sds=okVal(sdsR,'set_data'),mls=okVal(mlsR,'mini_log'),fls=okVal(flsR,'food_log');
+  if(ws){workoutLog=ws.map(r=>({date:r.date,dayLabel:r.day_label,startTs:r.start_ts,endTs:r.end_ts,durationSec:r.duration_sec,exercises:r.exercises||[],isPast:r.is_past||false,_dbid:r.id}));ls('wlog9',workoutLog);}
+  if(wts){weightLog=wts.map(r=>({date:r.date,w:parseFloat(r.weight)}));ls('wt9',weightLog);}
+  if(sds){setData={};sds.forEach(r=>{setData[r.key]=r.data;});ls('sd9',setData);}
+  if(mls){miniLog={};mls.forEach(r=>{miniLog[r.key]={done:r.done||false,sets:safeJ(r.sets)||[]};}); ls('ml9',miniLog);}
+  if(fls){foodLog={};fls.forEach(r=>{if(!foodLog[r.date])foodLog[r.date]=[];foodLog[r.date].push({name:r.name,serving:r.serving||'',cal:r.cal||0,pro:r.pro||0,carb:r.carb||0,fat:r.fat||0,_id:r.id});});ls('fl9',foodLog);}
+  // Load water from set_data
+  if(sds)loadWaterFromSD();
+  // Load exercise customizations (add/remove/order) from set_data
+  if(sds)loadExCustomizationsFromSD();
+  const anyOk=[ws,wts,sds,mls,fls].some(v=>v!==null);
+  if(anyOk)console.log('[KWT] Cloud loaded | workouts:',workoutLog.length,'| weights:',weightLog.length,'| foods:',Object.keys(foodLog).length);
+  else console.warn('[KWT] Cloud load failed: all tables errored');
+  return anyOk;
 }
 function safeJ(v){try{return v?JSON.parse(v):null;}catch{return null;}}
 async function syncAll(){
