@@ -706,11 +706,20 @@ async function flushQ(){
   }
   savePQ();
 }
-async function sbSaveWo(w){
-  const r={date:w.date,day_label:w.dayLabel,start_ts:w.startTs||0,end_ts:w.endTs||0,
+function woRow(w){
+  return{date:w.date,day_label:w.dayLabel,start_ts:w.startTs||0,end_ts:w.endTs||0,
     duration_sec:w.durationSec||0,exercises:w.exercises||[],is_past:w.isPast||false,client_id:w._cid||null};
+}
+async function sbSaveWo(w){
+  const r=woRow(w);
   if(!syncOnline){queue('wo',r);return;}
-  try{await sbF('workouts','POST',r);}catch(e){queue('wo',r);}
+  // Capture the new row id so a later edit PATCHes instead of inserting a dup.
+  try{const res=await sbF('workouts','POST',r);const row=Array.isArray(res)?res[0]:res;if(row&&row.id)w._dbid=row.id;}catch(e){queue('wo',r);}
+}
+async function sbUpdateWo(id,w){
+  const r=woRow(w);
+  if(!syncOnline){queue('wo',r);return;}
+  try{await sbF(`workouts?id=eq.${id}`,'PATCH',r);}catch(e){queue('wo',r);}
 }
 async function sbDelWo(id){
   if(!syncOnline){queue('dwo',id);return;}
@@ -776,6 +785,8 @@ async function loadCloud(){
   if(sds)loadWaterFromSD();
   // Load exercise customizations (add/remove/order) from set_data
   if(sds)loadExCustomizationsFromSD();
+  // Recover sessions from logged sets that never got a Finish-ed workout record
+  deriveSessionsFromSets();
   const anyOk=[ws,wts,sds,mls,fls].some(v=>v!==null);
   if(anyOk)console.log('[KWT] Cloud loaded | workouts:',workoutLog.length,'| weights:',weightLog.length,'| foods:',Object.keys(foodLog).length);
   else console.warn('[KWT] Cloud load failed: all tables errored');
@@ -1300,6 +1311,37 @@ function savePastWorkout(){
   alert('Past session logged!');
   if(document.getElementById('page-history').classList.contains('active'))renderHistory();
 }
+// Save (or update) a real workout record for a past date from the day view.
+// Pulls in every set marked done for that date, plus a manual duration.
+function saveDaySession(tk,d){
+  const minEl=document.getElementById('daySessMin');
+  const min=parseInt(minEl&&minEl.value)||0;
+  const s=SCH[d];
+  const order=getExOrder(d,tk);
+  const exercises=order.map((ex,ei)=>{
+    const sets=[];const p=parseInt(ex.sets)||3;
+    for(let j=0;j<p+10;j++){const k=`${tk}-${ei}-${j}`;if(setData[k]&&setData[k].done)sets.push({reps:setData[k].reps||0,weight:setData[k].weight||0});}
+    return{name:ex.name,sets};
+  }).filter(e=>e.sets.length>0);
+  if(!exercises.length&&!min){alert('Check off at least one set (✓) or enter a duration first.');return;}
+  // Replace any existing entry for this date (real OR derived); reuse its ids so
+  // we PATCH the same cloud row instead of inserting duplicates.
+  let dbid=null,cid=null;
+  for(let i=workoutLog.length-1;i>=0;i--){
+    if(workoutLog[i].date===tk){
+      if(workoutLog[i]._dbid&&!dbid)dbid=workoutLog[i]._dbid;
+      if(workoutLog[i]._cid&&!cid)cid=workoutLog[i]._cid;
+      workoutLog.splice(i,1);
+    }
+  }
+  const wo={date:tk,dayLabel:s.label,startTs:0,endTs:0,durationSec:min*60,exercises,isPast:true,_cid:cid||Date.now().toString(36)};
+  if(dbid)wo._dbid=dbid;
+  workoutLog.unshift(wo);workoutLog.sort((a,b)=>b.date.localeCompare(a.date));
+  ls('wlog9',workoutLog);
+  if(dbid)sbUpdateWo(dbid,wo);else sbSaveWo(wo);
+  alert('Session saved for '+fmtDate(tk)+(min?' · '+min+' min':'')+'.');
+  renderDayDetail(d);
+}
 // FIX 3: Delete workout
 function deleteWorkout(idx){
   if(!confirm('Delete this workout?'))return;
@@ -1321,14 +1363,11 @@ function buildCarousel(){
   // Week strip is now rendered inline in renderDayDetail
   // This is a no-op kept for compatibility
 }
-function selCarDay(d){
-  carDay=d;const td=dow();
-  for(let i=0;i<7;i++){
-    const dd=(td+i)%7,el=document.getElementById(`dc-${dd}`);if(!el)continue;
-    el.classList.remove('sel');
-    if(dd===d)el.classList.add('sel');
-    if(dd===td)el.style.borderColor=d===td?'':'rgba(95,101,217,0.4)';
-  }
+function selCarDay(d,dStr){
+  carDay=d;
+  // dStr is the actual date for the tapped strip cell. Storing it makes set
+  // logging + duration write to THAT date's keys, not always today.
+  carDayDate=dStr||null;
   renderDayDetail(d);
 }
 
@@ -1344,6 +1383,9 @@ function renderDayDetail(d){
            :todayKey();
   _curD = d;
   _curTk = tk;
+  const _tkToday=todayKey();
+  const isFuture=tk>_tkToday;           // future date → preview only, no logging
+  const isPastDay=tk<_tkToday;          // past date → manual duration entry
   const dayLbl=isT?`Today — ${DN[d]}`:d===((td+1)%7)?`Tomorrow — ${DN[d]}`:DN[d];
   let html='';
 
@@ -1403,17 +1445,37 @@ function renderDayDetail(d){
     // ── DASHBOARD WIDGET (replaces hero card) ────────────────────────────
     html+=buildDashWidget();
 
-    // ── START WORKOUT BUTTON ──────────────────────────────────────────────
-    const on=workoutActive;
-    html+=`<div style="padding:12px 16px 4px">
-      <button class="btn-sw${on?' active':' idle'}" id="btnSW" onclick="toggleWorkout()">
-        <span style="font-size:16px">${on?'⏹':'▶'}</span>
-        ${on?'Stop & Finish Workout':'Start Workout'}
-      </button>
-      <div style="text-align:center;margin-top:2px">
-        <button style="font-size:12px;color:var(--mu)" onclick="openPastWo()">+ Log a past session instead</button>
-      </div>
-    </div>`;
+    // ── START / LOG SESSION ───────────────────────────────────────────────
+    if(isT){
+      // Today → live start/stop timer
+      const on=workoutActive;
+      html+=`<div style="padding:12px 16px 4px">
+        <button class="btn-sw${on?' active':' idle'}" id="btnSW" onclick="toggleWorkout()">
+          <span style="font-size:16px">${on?'⏹':'▶'}</span>
+          ${on?'Stop & Finish Workout':'Start Workout'}
+        </button>
+        <div style="text-align:center;margin-top:2px">
+          <button style="font-size:12px;color:var(--mu)" onclick="openPastWo()">+ Log a past session instead</button>
+        </div>
+      </div>`;
+    } else if(isPastDay){
+      // Past day → manual duration + save. Pulls in any sets checked below.
+      const ex0=workoutLog.find(w=>w.date===tk);
+      const curMin=ex0&&ex0.durationSec?Math.round(ex0.durationSec/60):'';
+      html+=`<div style="padding:12px 16px 4px">
+        <div style="font-size:11px;color:var(--mu2);text-transform:uppercase;letter-spacing:0.07em;font-weight:600;margin-bottom:7px">Log this day's session</div>
+        <div style="display:flex;gap:8px">
+          <input id="daySessMin" class="inp" type="number" placeholder="Duration (min)" value="${curMin}" min="1" max="600" style="flex:1;padding:13px 14px">
+          <button class="btn-p" style="flex-shrink:0" onclick="saveDaySession('${tk}',${d})">Save session</button>
+        </div>
+        <div style="font-size:11px;color:var(--mu);margin-top:5px">Check off sets below, then Save. Records ${fmtDate(tk)} in History.</div>
+      </div>`;
+    } else {
+      // Future day → preview only
+      html+=`<div style="padding:12px 16px 4px">
+        <div style="background:var(--s1);border:0.5px solid var(--bd);border-radius:var(--r-md);padding:13px;text-align:center;font-size:13px;color:var(--mu)">📅 Future day — preview only. Logging opens on the day.</div>
+      </div>`;
+    }
 
     // ── PROGRESS RING (today only) ────────────────────────────────────────
     if(isT&&s.exercises.length){
@@ -1490,7 +1552,7 @@ function renderDayDetail(d){
         </div>
         <div class="ex-body" id="exb-${d}-${ei}">
           ${ex.note?`<div class="ex-note" style="padding:10px 12px 6px">${ex.note}</div>`:''}
-          <div class="set-logger" id="sl-${d}-${ei}">${buildSetLogger(d,ei,ex,tk)}</div>
+          <div class="set-logger" id="sl-${d}-${ei}">${isFuture?'<div style="padding:12px;font-size:12px;color:var(--mu);text-align:center">Set logging opens on the day.</div>':buildSetLogger(d,ei,ex,tk)}</div>
           ${ex.rest>0?`<div class="rest-timer" id="rt-${d}-${ei}">
             <div style="display:flex;align-items:center;gap:8px"><span style="font-size:16px">⏱</span>
               <div><div class="rt-time" id="rtd-${d}-${ei}">0:${String(ex.rest).padStart(2,'0')}</div>
@@ -1608,6 +1670,40 @@ function loadExCustomizationsFromSD(){
       localStorage.setItem(key, JSON.stringify(setData[key]));
     }
   });
+}
+
+// Synthesize workout sessions from logged sets for any day that has done sets
+// but no real `workouts` record. Recovers days where the user logged sets but
+// never pressed Finish. Idempotent: skips dates already present in workoutLog
+// (real records and previously-derived ones), so it can be called repeatedly.
+// Derived entries are in-memory only (marked _derived) — never pushed to cloud.
+function deriveSessionsFromSets(){
+  const have=new Set(workoutLog.map(w=>w.date));
+  const byDate={};
+  Object.keys(setData).forEach(k=>{
+    const m=k.match(/^(\d{4}-\d{2}-\d{2})-(\d+)-(\d+)$/);
+    if(!m)return;
+    const sd=setData[k];
+    if(!sd||!sd.done)return;                 // only count completed sets
+    const date=m[1],ei=+m[2];
+    (byDate[date]=byDate[date]||{});
+    (byDate[date][ei]=byDate[date][ei]||[]).push({reps:sd.reps||0,weight:sd.weight||0});
+  });
+  Object.keys(byDate).forEach(date=>{
+    if(have.has(date))return;                // real record wins, and prevents dupes
+    const d=new Date(date+'T12:00:00').getDay();
+    const order=getExOrder(d,date);          // effective exercise list (add/remove/reorder)
+    const exMap=byDate[date];
+    const exercises=Object.keys(exMap).map(ei=>{
+      const ex=order[+ei];
+      return {name:ex?ex.name:('Exercise '+(+ei+1)),sets:exMap[ei]};
+    }).filter(e=>e.sets.length);
+    if(!exercises.length)return;
+    const label=(SCH[d]&&SCH[d].label)||'Logged Session';
+    workoutLog.push({date,dayLabel:label,startTs:0,endTs:0,durationSec:0,exercises,isPast:false,_derived:true});
+    have.add(date);
+  });
+  workoutLog.sort((a,b)=>b.date.localeCompare(a.date));
 }
 
 
@@ -2501,6 +2597,17 @@ function sessionType(lbl){
   if(l.includes('cardio'))return'Cardio';return lbl.split('—')[0].trim().slice(0,5);
 }
 function openCalendar(){calOffset=0;renderCalendar();openModal('calModal');}
+// Tap a calendar day → jump to Today tab showing that exact date for full logging.
+function logDayFromCal(ds){
+  if(ds>todayKey())return;                 // no future logging
+  carDay=new Date(ds+'T12:00:00').getDay();
+  carDayDate=ds;
+  closeModal('calModal');
+  const todayBtn=document.querySelector('.bnav .bn');
+  if(todayBtn)switchPage('today',todayBtn);
+  renderDayDetail(carDay);
+  window.scrollTo(0,0);
+}
 function renderCalendar(){
   const MY=['January','February','March','April','May','June','July','August','September','October','November','December'];
   let tm=5+calOffset,ty=2026+Math.floor(tm/12);tm=tm%12;
@@ -2534,7 +2641,8 @@ function renderCalendar(){
     } else if(ds>='2026-06-01'&&ds<='2027-06-25'){cls+=' missed';}
     if(isT)cls+=' today-mk';
     if(ptc2&&!isWkd&&!isFut)style+=(style?';':'')+'border-bottom:2px solid '+ptc2+'44';
-    html+=`<div class="${cls}" style="${style}">${day}${icon}${sub}</div>`;
+    const loggable=ds<=ts;   // past + present only
+    html+=`<div class="${cls}" style="${style}${loggable?';cursor:pointer':''}" ${loggable?`onclick="logDayFromCal('${ds}')"`:''}>${day}${icon}${sub}</div>`;
   }
   html+=`</div><div class="cal-legend">
     <div class="cal-legend-item"><div style="width:10px;height:10px;border-radius:50%;background:rgba(189,242,75,0.5)"></div>Trained</div>
@@ -2672,6 +2780,7 @@ document.getElementById('page-today').addEventListener('click', e=>{
 });
 
 // STEP 1: Render immediately from localStorage cache (instant, works offline)
+deriveSessionsFromSets();
 updateTopbar();buildCarousel();renderDayDetail(dow());
 
 // Recover in-progress workout timer if app was killed mid-session
