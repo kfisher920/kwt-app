@@ -900,7 +900,7 @@ function renderHome(){
   const totCal=tfl.reduce((a,f)=>a+(f.cal||0),0);
   const totPro=tfl.reduce((a,f)=>a+(f.pro||0),0);
   const ph=PHASES[curPh()];
-  const calGoal=parseInt(ph.cal.split('-')[0])||2200;
+  const calGoal=parseInt(ph.cal.split('-')[0].replace(/,/g,''))||2200;
   const proGoal=ph.proT||185;
   const waterOz=(typeof getWaterToday==='function')?getWaterToday():0;
   const tw7=workoutLog.filter(w=>(new Date()-new Date(w.date+'T12:00:00'))/864e5<7).length;
@@ -985,7 +985,7 @@ function buildDashWidget(){
   const totCarb=tfl.reduce((a,f)=>a+(f.carb||0),0);
   const totFat=tfl.reduce((a,f)=>a+(f.fat||0),0);
   const ph=PHASES[curPh()];
-  const calGoal=parseInt(ph.cal.split('-')[0])||2200;
+  const calGoal=parseInt(ph.cal.split('-')[0].replace(/,/g,''))||2200;
   const calRemain=Math.max(0,calGoal-totCal);
   const proGoal=ph.proT||185;
   const carbGoal=parseInt(ph.carbs)||220;
@@ -2637,7 +2637,7 @@ function renderNutrition(){
   const tfl=foodLog[tk]||[];
   const totC=tfl.reduce((a,f)=>a+(f.cal||0),0),totP=tfl.reduce((a,f)=>a+(f.pro||0),0);
   const totK=tfl.reduce((a,f)=>a+(f.carb||0),0),totF=tfl.reduce((a,f)=>a+(f.fat||0),0);
-  const pT=ph.proT||185,cT=parseInt(ph.cal.split('-')[0])||2200;
+  const pT=ph.proT||185,cT=parseInt(ph.cal.split('-')[0].replace(/,/g,''))||2200;
   const pPct=Math.min(100,Math.round((totP/pT)*100)),cPct=Math.min(100,Math.round((totC/cT)*100));
   // Format display date
   const dispDate=isToday?'Today':new Date(tk+'T12:00:00').toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
