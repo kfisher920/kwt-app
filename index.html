@@ -278,6 +278,17 @@ input:focus,select:focus,textarea:focus{outline:none;}
 .cal-day .cal-icon{position:absolute;top:1px;right:1px;font-size:8px;}
 .cal-legend{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center;}
 .cal-legend-item{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--mu);}
+/* ── FLOATING CIRCLE CALENDAR ─────────────────────────────────────────── */
+.cal-wrap{background:#141414;border:0.5px solid rgba(255,255,255,0.08);border-radius:20px;padding:14px 12px 16px;box-shadow:0 10px 34px rgba(0,0,0,0.5);}
+.cal-c{aspect-ratio:1;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;background:#323232;color:#fff;transition:background 0.12s;}
+.cal-c.empty{background:transparent;}
+.cal-c.future{background:#1f1f1f;color:rgba(255,255,255,0.28);}
+.cal-c.trained{background:#BDF24B;color:#0D0D0D;}
+.cal-c.missed{background:#FF9500;color:#0D0D0D;}
+.cal-c.tdy{outline:2px solid var(--acc);outline-offset:-2px;}
+.cal-c.tap{cursor:pointer;}
+.cal-c.tap:not(.trained):not(.missed):not(.future):active{background:#464646;}
+.cal-key{width:13px;height:13px;border-radius:50%;display:inline-block;flex-shrink:0;}
 /* Hevy-style clean calendar cells */
 .cal-day2{aspect-ratio:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:13px;font-weight:600;border-radius:50%;transition:background 0.12s;}
 .cal-day2:active{background:var(--s2);}
@@ -874,7 +885,7 @@ function renderHome(){
   const hr=new Date().getHours();
   const greet=hr<12?'Good morning':hr<17?'Good afternoon':'Good evening';
   const html=`
-  <div class="greet-card" style="margin:16px 0 0;min-height:170px;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(180deg,rgba(13,13,13,0.15) 0%,rgba(13,13,13,0.55) 55%,rgba(13,13,13,0.88) 100%),url('images/Gym_Home_Hero_2.png') center/cover no-repeat;border-color:rgba(255,255,255,0.12)">
+  <div class="greet-card" style="margin:16px 0 0;min-height:170px;display:flex;flex-direction:column;justify-content:flex-end;background:linear-gradient(180deg,rgba(13,13,13,0.15) 0%,rgba(13,13,13,0.55) 55%,rgba(13,13,13,0.88) 100%),url('images/Gym_Home_Hero_2_sm.webp') center/cover no-repeat;border-color:rgba(255,255,255,0.12)">
     <div class="greet-hi">${greet},</div>
     <div class="greet-name">Kyle 💪</div>
     <div class="greet-sub">🏋️ ${dtw()} days to the wedding</div>
@@ -2834,39 +2845,39 @@ function renderCalendar(){
   const woMap={};workoutLog.forEach(w=>{woMap[w.date]={dur:w.durationSec||0,lbl:w.dayLabel||''};});
   const msStr=`${ty}-${String(tm+1).padStart(2,'0')}-01`;
   const pi=phaseOfDate(msStr);const pn=pi>=0?PHASE_RANGES[pi].n:'';const ptc=pi>=0?PHASE_RANGES[pi].tc:'var(--mu)';
-  let html=`<div class="cal-month-nav">
-    <button class="cal-nav-btn" onclick="moveCalMonth(-1)" ${calOffset<=0?'disabled style="opacity:0.3"':''}>‹</button>
-    <div><div class="cal-month-title">${MY[tm]} ${ty}</div>${pn?`<div style="font-size:10px;color:${ptc};font-weight:500;margin-top:1px">${pn}</div>`:''}</div>
-    <button class="cal-nav-btn" onclick="moveCalMonth(1)" ${calOffset>=12?'disabled style="opacity:0.3"':''}>›</button>
-  </div>
-  ${pn?`<div style="background:${PHASE_RANGES[pi].c};border-radius:10px;padding:5px 10px;margin-bottom:10px;font-size:11px;color:${ptc};display:flex;align-items:center;gap:6px"><div style="width:8px;height:8px;border-radius:50%;background:${ptc}"></div>${pn} · ${PHASE_RANGES[pi].s.slice(5)} – ${PHASE_RANGES[pi].e.slice(5)}</div>`:''}
-  <div class="cal-grid">`;
-  ['Su','Mo','Tu','We','Th','Fr','Sa'].forEach(d=>html+=`<div class="cal-dow">${d}</div>`);
-  for(let i=0;i<fd;i++)html+=`<div></div>`;
+  let html=`<div class="cal-wrap">
+    <div class="cal-month-nav">
+      <button class="cal-nav-btn" onclick="moveCalMonth(-1)" ${calOffset<=0?'disabled style="opacity:0.3"':''}>‹</button>
+      <div style="text-align:center"><div class="cal-month-title">${MY[tm]} ${ty}</div>${pn?`<div style="font-size:10px;color:${ptc};font-weight:500;margin-top:1px">${pn}</div>`:''}</div>
+      <button class="cal-nav-btn" onclick="moveCalMonth(1)" ${calOffset>=12?'disabled style="opacity:0.3"':''}>›</button>
+    </div>
+    <div class="cal-grid">`;
+  ['Mo','Tu','We','Th','Fr','Sa','Su'].forEach(d=>html+=`<div class="cal-dow">${d}</div>`);
+  // Monday-first offset (getDay: Sun=0 → 6, Mon=1 → 0 …)
+  const lead=(new Date(ty,tm,1).getDay()+6)%7;
+  for(let i=0;i<lead;i++)html+=`<div class="cal-c empty"></div>`;
   for(let day=1;day<=dim;day++){
     const ds=`${ty}-${String(tm+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
     const dt=new Date(ds+'T12:00:00'),isT=ds===ts,isFut=dt>now;
     const isWed=ds==='2027-06-25',isSt=ds==='2026-06-01';
-    const wo=woMap[ds],isWkd=!!wo;
-    // Clean cell: just the number + a colored dot for trained days (Hevy-style).
-    let cls='cal-day2',numClr='var(--tx)',dotClr='';
-    if(isWed){numClr='#a78bfa';dotClr='#a78bfa';}
-    else if(isSt){numClr='#fbbf24';dotClr='#fbbf24';}
-    else if(isWkd){numClr='var(--grn)';dotClr='#BDF24B';}
-    else if(isFut){numClr='var(--mu2)';}
-    else if(ds>='2026-06-01'&&ds<=ts){numClr='var(--mu)';}   // past, not trained — muted
-    if(isT)cls+=' cal-today2';
-    const loggable=ds<=ts;
-    html+=`<div class="${cls}" style="${loggable?'cursor:pointer':''}" ${loggable?`onclick="logDayFromCal('${ds}')"`:''}>
-      <span style="color:${numClr}">${day}</span>
-      <span class="cal-dot2" style="background:${dotClr||'transparent'}"></span>
-    </div>`;
+    const isWkd=!!woMap[ds];
+    let cls='cal-c',style='';
+    if(isFut)cls+=' future';
+    else if(isWkd)cls+=' trained';                          // green fill
+    else if(isSt){/* gold below */}
+    else if(ds>='2026-06-02'&&ds<ts)cls+=' missed';         // past, not trained → orange (today excluded)
+    if(isSt)style='background:#fbbf24;color:#0D0D0D';
+    if(isWed)style='background:#a78bfa;color:#0D0D0D';
+    if(isT)cls+=' tdy';                                      // today ring
+    const loggable=ds<=ts;if(loggable)cls+=' tap';
+    html+=`<div class="${cls}" style="${style}" ${loggable?`onclick="logDayFromCal('${ds}')"`:''}>${day}</div>`;
   }
-  html+=`</div>
+  html+=`</div></div>
   <div class="cal-legend" style="margin-top:14px">
-    <div class="cal-legend-item"><span class="cal-dot2" style="background:#BDF24B;position:static"></span>Trained</div>
-    <div class="cal-legend-item"><span style="width:14px;height:14px;border-radius:50%;border:1.5px solid var(--acc);display:inline-block"></span>Today</div>
-    <div class="cal-legend-item"><span style="color:#fbbf24">⭐</span> Start <span style="color:#a78bfa;margin-left:6px">💍</span> Wedding</div>
+    <div class="cal-legend-item"><span class="cal-key" style="background:#BDF24B"></span>Trained</div>
+    <div class="cal-legend-item"><span class="cal-key" style="background:#FF9500"></span>Missed</div>
+    <div class="cal-legend-item"><span class="cal-key" style="background:#323232;outline:2px solid var(--acc);outline-offset:-2px"></span>Today</div>
+    <div class="cal-legend-item"><span style="color:#fbbf24">⭐</span> Start <span style="color:#a78bfa;margin-left:4px">💍</span> Wedding</div>
   </div>`;
   document.getElementById('calContent').innerHTML=html;
 }
