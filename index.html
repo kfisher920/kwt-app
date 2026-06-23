@@ -170,12 +170,18 @@ input:focus,select:focus,textarea:focus{outline:none;}
 /* ── SET LOGGER ─────────────────────────────────────────────── */
 .set-logger{padding:10px 12px 14px;}
 .set-logger-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.09em;color:var(--mu2);margin-bottom:9px;}
-.set-hdr{display:grid;grid-template-columns:22px 1fr 1fr 34px 26px;gap:5px;align-items:center;padding:0 2px 7px;border-bottom:0.5px solid var(--bd);font-size:10px;color:var(--mu2);text-align:center;text-transform:uppercase;letter-spacing:0.07em;}
-.set-row{display:grid;grid-template-columns:22px 1fr 1fr 34px 26px;gap:5px;align-items:center;padding:6px 2px;border-bottom:0.5px solid var(--mu3);}
+.set-hdr{display:grid;grid-template-columns:16px 1fr 1fr 30px 18px;gap:4px;align-items:center;padding:0 2px 7px;border-bottom:0.5px solid var(--bd);font-size:10px;color:var(--mu2);text-align:center;text-transform:uppercase;letter-spacing:0.07em;}
+.set-row{display:grid;grid-template-columns:16px 1fr 1fr 30px 18px;gap:4px;align-items:center;padding:6px 2px;border-bottom:0.5px solid var(--mu3);}
 .set-row:last-child{border-bottom:none;}
 .set-num{font-size:12px;font-weight:600;color:var(--mu2);text-align:center;}
 .set-inp{background:var(--s2);border:0.5px solid var(--bd2);border-radius:var(--r-xs);padding:7px 4px;color:var(--tx);font-size:13px;font-weight:600;text-align:center;width:100%;-webkit-appearance:none;}
 .set-inp:focus{border-color:var(--acc);background:var(--s3);}
+/* Stepper: [−][input][+] for reps & weight (no keyboard needed) */
+.stepper{display:flex;align-items:stretch;background:var(--s2);border:0.5px solid var(--bd2);border-radius:var(--r-xs);overflow:hidden;min-width:0;}
+.stepper .set-inp{border:none;border-radius:0;background:transparent;padding:7px 0;flex:1;min-width:0;}
+.stepper .set-inp:focus{background:var(--s3);}
+.stp{width:26px;flex-shrink:0;background:var(--s3);color:var(--tx);font-size:18px;font-weight:600;line-height:1;display:flex;align-items:center;justify-content:center;-webkit-user-select:none;user-select:none;touch-action:manipulation;}
+.stp:active{background:var(--acc);color:#fff;}
 .set-done-btn{width:32px;height:32px;border-radius:50%;border:1.5px solid var(--bd2);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--mu);background:var(--s2);transition:all 0.15s;}
 .set-done-btn.done{background:var(--grn);border-color:var(--grn);color:#0D0D0D;}
 .set-del-btn{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--red);opacity:0.55;background:var(--red-d);}
@@ -876,7 +882,7 @@ function renderHome(){
   const calGoal=parseInt(ph.cal.split('-')[0].replace(/,/g,''))||2200;
   const proGoal=ph.proT||185;
   const waterOz=(typeof getWaterToday==='function')?getWaterToday():0;
-  const tw7=workoutLog.filter(w=>(new Date()-new Date(w.date+'T12:00:00'))/864e5<7).length;
+  const tw7=workoutLog.filter(w=>w.date>=weekStartKey()).length;
   const woGoal=4, woPct=Math.min(100,Math.round((tw7/woGoal)*100));
   const calPct=Math.min(100,Math.round((totCal/calGoal)*100));
   const proPct=Math.min(100,Math.round((totPro/proGoal)*100));
@@ -984,7 +990,7 @@ function buildDashWidget(){
   const calCirc=2*Math.PI*34; // r=34 → circumference ≈ 213.6
   const calOffset=calCirc*(1-calPct/100);
   // Workouts this week
-  const tw7=workoutLog.filter(w=>(new Date()-new Date(w.date+'T12:00:00'))/864e5<7).length;
+  const tw7=workoutLog.filter(w=>w.date>=weekStartKey()).length;
   const woGoal=4;
   const woPct=Math.min(100,Math.round((tw7/woGoal)*100));
   const woCirc=2*Math.PI*28; // r=28
@@ -1254,6 +1260,8 @@ function todayKey(){
   const day=String(d.getDate()).padStart(2,'0');
   return `${y}-${m}-${day}`;
 }
+// Monday 00:00 of the current calendar week, as YYYY-MM-DD.
+function weekStartKey(){const d=new Date();d.setHours(0,0,0,0);d.setDate(d.getDate()-((d.getDay()+6)%7));return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
 function dtw(){return Math.max(0,Math.ceil((new Date('2027-06-25')-new Date())/864e5));}
 function wIn(){return Math.max(0,Math.floor((new Date()-new Date('2026-06-02'))/(864e5*7)));}
 function curPh(){const n=new Date();if(n<new Date('2026-09-01'))return 0;if(n<new Date('2026-12-01'))return 1;if(n<new Date('2027-04-01'))return 2;return 3;}
@@ -2189,11 +2197,19 @@ function buildSetLogger(d,ei,ex,tk){
     const lref=lastSets&&lastSets[j];
     h+=`<div class="set-row" id="sr-${d}-${ei}-${j}">
       <div class="set-num">${j+1}</div>
-      <input class="set-inp" type="number" id="rr-${d}-${ei}-${j}" placeholder="${lref?lref.reps:((ex.reps+'').split('-')[0]||'12')}" value="${sd.reps||''}" min="0" max="300" onchange="saveSD('${tk}',${d},${ei},${j})">
-      <input class="set-inp" type="number" id="rw-${d}-${ei}-${j}" placeholder="${lref&&lref.weight!=null&&lref.weight!==''?lref.weight:'lbs'}" value="${sd.weight||''}" min="0" max="999" step="2.5" onchange="saveSD('${tk}',${d},${ei},${j})">
+      <div class="stepper">
+        <button class="stp" onclick="stepRep('${tk}',${d},${ei},${j},-1)">−</button>
+        <input class="set-inp" type="number" inputmode="numeric" id="rr-${d}-${ei}-${j}" placeholder="${lref?lref.reps:((ex.reps+'').split('-')[0]||'12')}" value="${sd.reps||''}" min="0" max="300" onchange="saveSD('${tk}',${d},${ei},${j})">
+        <button class="stp" onclick="stepRep('${tk}',${d},${ei},${j},1)">+</button>
+      </div>
+      <div class="stepper">
+        <button class="stp" onclick="stepWt('${tk}',${d},${ei},${j},-2.5)">−</button>
+        <input class="set-inp" type="number" inputmode="decimal" id="rw-${d}-${ei}-${j}" placeholder="${lref&&lref.weight!=null&&lref.weight!==''?lref.weight:'lbs'}" value="${sd.weight||''}" min="0" max="999" step="2.5" onchange="saveSD('${tk}',${d},${ei},${j})">
+        <button class="stp" onclick="stepWt('${tk}',${d},${ei},${j},2.5)">+</button>
+      </div>
       <button class="set-done-btn${sd.done?' done':''}" id="sdb-${d}-${ei}-${j}" onclick="markDone('${tk}',${d},${ei},${j},${ex.rest})">${sd.done?'✓':'○'}</button>
       <button class="set-del-btn" onclick="deleteSetRow('${tk}',${d},${ei},${j})">✕</button>
-    </div>${lref?`<div style="font-size:10px;color:var(--mu2);padding:0 2px 4px 26px">last: ${lref.reps||0}×${lref.weight||0} lb ${sd.done?deltaBadge(sd,lref):''}</div>`:''}`;
+    </div>${lref?`<div style="font-size:10px;color:var(--mu2);padding:0 2px 5px 22px">last: ${lref.reps||0}×${lref.weight||0} lb ${sd.done?deltaBadge(sd,lref):''}</div>`:''}`;
   }
   h+=`<button class="add-set-btn" onclick="addSet('${tk}',${d},${ei})">+ Add set</button>`;
   return h;
@@ -2208,8 +2224,8 @@ function buildMiniLogger(d,mi,mk,msd){
     const sd=sets[j]||{};
     h+=`<div class="set-row">
       <div class="set-num">${j+1}</div>
-      <input class="set-inp" type="number" id="mr-${d}-${mi}-${j}" placeholder="reps" value="${sd.reps||''}" min="0" max="999" onchange="saveMiniSet('${mk}',${d},${mi},${j})">
-      <input class="set-inp" type="number" id="mw-${d}-${mi}-${j}" placeholder="lbs" value="${sd.weight||''}" min="0" max="999" step="2.5" onchange="saveMiniSet('${mk}',${d},${mi},${j})">
+      <input class="set-inp" type="number" inputmode="numeric" id="mr-${d}-${mi}-${j}" placeholder="reps" value="${sd.reps||''}" min="0" max="999" onchange="saveMiniSet('${mk}',${d},${mi},${j})">
+      <input class="set-inp" type="number" inputmode="decimal" id="mw-${d}-${mi}-${j}" placeholder="lbs" value="${sd.weight||''}" min="0" max="999" step="2.5" onchange="saveMiniSet('${mk}',${d},${mi},${j})">
       <button class="set-done-btn${sd.done?' done':''}" id="mdb-${d}-${mi}-${j}" onclick="markMiniDone('${mk}',${d},${mi},${j})">${sd.done?'✓':'○'}</button>
       <button class="set-del-btn" onclick="delMiniSet('${mk}',${d},${mi},${j})">✕</button>
     </div>`;
@@ -2223,6 +2239,18 @@ function saveSD(tk,d,ei,j){
   const r=document.getElementById(`rr-${d}-${ei}-${j}`);const w=document.getElementById(`rw-${d}-${ei}-${j}`);
   setData[k].reps=r?r.value:'';setData[k].weight=w?w.value:'';
   ls('sd9',setData);sbSaveSD(k,setData[k]);
+}
+// Stepper +/- for reps & weight. Empty field starts from the placeholder (last
+// time's value) so one tap of + gives last+1. Saves through saveSD.
+function stepRep(tk,d,ei,j,delta){
+  const inp=document.getElementById(`rr-${d}-${ei}-${j}`);if(!inp)return;
+  let v=parseInt(inp.value!==''?inp.value:inp.placeholder)||0;
+  inp.value=Math.max(0,v+delta);saveSD(tk,d,ei,j);
+}
+function stepWt(tk,d,ei,j,delta){
+  const inp=document.getElementById(`rw-${d}-${ei}-${j}`);if(!inp)return;
+  let v=parseFloat(inp.value!==''?inp.value:inp.placeholder)||0;
+  inp.value=Math.max(0,Math.round((v+delta)*10)/10);saveSD(tk,d,ei,j);
 }
 let restTimers={};
 function markDone(tk,d,ei,j,rest){
@@ -2276,12 +2304,14 @@ function refreshExCard(d,ei,tk){
 
 function deleteSetRow(tk,d,ei,j){
   const k=`${tk}-${ei}-${j}`;delete setData[k];ls('sd9',setData);sbDelSD(k);
-  const s=SCH[d];const ex=s.exercises[ei];
+  // Use effective list (incl. custom-added/reordered), NOT raw SCH — fixes
+  // no-refresh on added exercises where SCH[d].exercises[ei] is undefined.
+  const ex=getExOrder(d,tk)[ei];
   const sl=document.getElementById(`sl-${d}-${ei}`);if(sl&&ex)sl.innerHTML=buildSetLogger(d,ei,ex,tk);
   updateRing(d,tk);
 }
 function addSet(tk,d,ei){
-  const s=SCH[d];const ex=s.exercises[ei];const p=parseInt(ex?.sets)||3;
+  const ex=getExOrder(d,tk)[ei];const p=parseInt(ex&&ex.sets)||3;
   let n=p;while(setData[`${tk}-${ei}-${n}`])n++;
   setData[`${tk}-${ei}-${n}`]={reps:'',weight:'',done:false};ls('sd9',setData);sbSaveSD(`${tk}-${ei}-${n}`,setData[`${tk}-${ei}-${n}`]);
   const sl=document.getElementById(`sl-${d}-${ei}`);if(sl&&ex)sl.innerHTML=buildSetLogger(d,ei,ex,tk);
@@ -2398,7 +2428,7 @@ function deleteCustomMini(d,tk,idx){
 // ── HISTORY PAGE ─────────────────────────────────────────────────────────
 function renderHistory(){
   const tw=workoutLog.length,td2=workoutLog.reduce((a,w)=>a+(w.durationSec||0),0),avg=tw?Math.floor(td2/tw):0;
-  const tw7=workoutLog.filter(w=>(new Date()-new Date(w.date+'T12:00:00'))/864e5<7).length;
+  const tw7=workoutLog.filter(w=>w.date>=weekStartKey()).length;
   const lw2=latW(),toGo=Math.max(0,Math.round((lw2-190)*10)/10),lost=Math.round((215-lw2)*10)/10;
   const pct=Math.round(Math.min(100,((215-lw2)/25)*100));
   let html=`<div style="padding:16px 16px 12px">
