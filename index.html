@@ -1345,10 +1345,10 @@ function endWorkout(){
   const dur=Math.floor((Date.now()-workoutStart)/1000);
   if(currentWorkout){
     currentWorkout.endTs=Date.now();currentWorkout.durationSec=dur;currentWorkout._cid=workoutStart.toString(36);
-    const d=carDay!==null?carDay:dow();const s=SCH[d];const tk=todayKey();
-    currentWorkout.exercises=s.exercises.map((ex,i)=>{
-      const sets=[];
-      for(let j=0;j<parseInt(ex.sets)+10;j++){const k=`${tk}-${i}-${j}`;if(setData[k]&&setData[k].done)sets.push({reps:setData[k].reps||0,weight:setData[k].weight||0});}
+    const d=carDay!==null?carDay:dow();const tk=todayKey();
+    currentWorkout.exercises=getExOrder(d,tk).map(ex=>{
+      const sets=[];const p=parseInt(ex.sets)||3;
+      for(let j=0;j<p+10;j++){const k=sk(tk,ex._uid,j);if(setData[k]&&setData[k].done)sets.push({reps:setData[k].reps||0,weight:setData[k].weight||0});}
       return{name:ex.name,sets};
     }).filter(e=>e.sets.length>0);
     workoutLog.unshift(currentWorkout);
@@ -1435,9 +1435,9 @@ function saveDaySession(tk,d){
   const min=parseInt(minEl&&minEl.value)||0;
   const s=SCH[d];
   const order=getExOrder(d,tk);
-  const exercises=order.map((ex,ei)=>{
+  const exercises=order.map(ex=>{
     const sets=[];const p=parseInt(ex.sets)||3;
-    for(let j=0;j<p+10;j++){const k=`${tk}-${ei}-${j}`;if(setData[k]&&setData[k].done)sets.push({reps:setData[k].reps||0,weight:setData[k].weight||0});}
+    for(let j=0;j<p+10;j++){const k=sk(tk,ex._uid,j);if(setData[k]&&setData[k].done)sets.push({reps:setData[k].reps||0,weight:setData[k].weight||0});}
     return{name:ex.name,sets};
   }).filter(e=>e.sets.length>0);
   if(!exercises.length&&!min){alert('Check off at least one set (✓) or enter a duration first.');return;}
@@ -1581,9 +1581,9 @@ function renderDayDetail(d){
     }
 
     // ── PROGRESS RING (today only) ────────────────────────────────────────
-    if(isT&&s.exercises.length){
-      const total=s.exercises.length;
-      const done=s.exercises.map((_,i)=>{const p=parseInt(_.sets)||3;for(let j=0;j<p+10;j++){if(setData[`${tk}-${i}-${j}`]&&setData[`${tk}-${i}-${j}`].done)return true;}return false;}).filter(Boolean).length;
+    if(isT&&allExs.length){
+      const total=allExs.length;
+      const done=allExs.map(ex=>{const p=parseInt(ex.sets)||3;for(let j=0;j<p+10;j++){if(setData[sk(tk,ex._uid,j)]&&setData[sk(tk,ex._uid,j)].done)return true;}return false;}).filter(Boolean).length;
       const pct=total>0?Math.round((done/total)*100):0;
       html+=`<div style="padding:0 16px">
         <div class="motiv" style="margin:14px 0 0">"${MOTIVATIONS[Math.floor(Date.now()/86400000)%MOTIVATIONS.length]}"</div>
@@ -1619,7 +1619,7 @@ function renderDayDetail(d){
     allExs.forEach((ex,ei)=>{
       const exd=getEx(ex.name);
       const p=parseInt(ex.sets)||3;
-      let lc=0;for(let j=0;j<p+10;j++){if(setData[`${tk}-${ei}-${j}`]&&setData[`${tk}-${ei}-${j}`].done)lc++;}
+      let lc=0;for(let j=0;j<p+10;j++){if(setData[sk(tk,ex._uid,j)]&&setData[sk(tk,ex._uid,j)].done)lc++;}
       const accentC=exd?(MC[exd.target]||'#5F65D9'):'#5F65D9';
       const durEst=EX_DUR[ex.name]||'~5 min';
       const isDone3=lc>=3;
@@ -1789,26 +1789,42 @@ function loadExCustomizationsFromSD(){
 // never pressed Finish. Idempotent: skips dates already present in workoutLog
 // (real records and previously-derived ones), so it can be called repeatedly.
 // Derived entries are in-memory only (marked _derived) — never pushed to cloud.
-function deriveSessionsFromSets(){
-  const have=new Set(workoutLog.map(w=>w.date));
-  const byDate={};
+// Stable set-data key: date:exerciseUid:setIndex (uid survives add/remove/reorder).
+function sk(tk,uid,j){return `${tk}:${uid}:${j}`;}
+// Migrate legacy index-based keys (YYYY-MM-DD-EI-J) → uid keys (assumes plan-EI).
+// In-memory + idempotent; runs on every load. Old cloud rows orphan harmlessly.
+function migrateSetKeys(){
+  let changed=false;
   Object.keys(setData).forEach(k=>{
     const m=k.match(/^(\d{4}-\d{2}-\d{2})-(\d+)-(\d+)$/);
     if(!m)return;
+    const nk=`${m[1]}:plan-${m[2]}:${m[3]}`;
+    if(setData[nk]===undefined)setData[nk]=setData[k];
+    delete setData[k];changed=true;
+  });
+  if(changed)ls('sd9',setData);
+}
+function deriveSessionsFromSets(){
+  migrateSetKeys();
+  const have=new Set(workoutLog.map(w=>w.date));
+  const byDate={};
+  Object.keys(setData).forEach(k=>{
+    const m=k.match(/^(\d{4}-\d{2}-\d{2}):([^:]+):(\d+)$/);   // date:uid:setIndex
+    if(!m)return;
     const sd=setData[k];
     if(!sd||!sd.done)return;                 // only count completed sets
-    const date=m[1],ei=+m[2];
+    const date=m[1],uid=m[2];
     (byDate[date]=byDate[date]||{});
-    (byDate[date][ei]=byDate[date][ei]||[]).push({reps:sd.reps||0,weight:sd.weight||0});
+    (byDate[date][uid]=byDate[date][uid]||[]).push({reps:sd.reps||0,weight:sd.weight||0});
   });
   Object.keys(byDate).forEach(date=>{
     if(have.has(date))return;                // real record wins, and prevents dupes
     const d=new Date(date+'T12:00:00').getDay();
     const order=getExOrder(d,date);          // effective exercise list (add/remove/reorder)
     const exMap=byDate[date];
-    const exercises=Object.keys(exMap).map(ei=>{
-      const ex=order[+ei];
-      return {name:ex?ex.name:('Exercise '+(+ei+1)),sets:exMap[ei]};
+    const exercises=Object.keys(exMap).map(uid=>{
+      const ex=order.find(e=>e._uid===uid);
+      return {name:ex?ex.name:'Exercise',sets:exMap[uid]};
     }).filter(e=>e.sets.length);
     if(!exercises.length)return;
     const label=(SCH[d]&&SCH[d].label)||'Logged Session';
@@ -2186,32 +2202,41 @@ function renderExDetailChart(name){
 }
 // ── SET LOGGER (FIX 2+3: delete rows, proper grid) ───────────────────────
 function buildSetLogger(d,ei,ex,tk){
+  const uid=ex._uid||('plan-'+ei);
   const p=parseInt(ex.sets)||3;
-  let tot=p;for(let j=p;j<p+10;j++){if(setData[`${tk}-${ei}-${j}`])tot=j+1;}
+  let tot=p;for(let j=p;j<p+10;j++){if(setData[sk(tk,uid,j)])tot=j+1;}
   // Set-vs-last: reference the same exercise's most recent prior session.
   const lastS=lastExSets(ex.name,tk);const lastSets=lastS?lastS.sets:null;
+  // Prefill defaults (same for every row): reps from last session's 1st set
+  // (fallback plan target), weight = highest ever recorded for this exercise.
+  const sess=exSessions(ex.name);
+  const maxW=sess.reduce((mx,s)=>Math.max(mx,s.topW||0),0);
+  const defReps=(lastSets&&lastSets[0]&&lastSets[0].reps)||((ex.reps+'').split('-')[0])||'10';
+  const defWt=maxW||((lastSets&&lastSets[0]&&lastSets[0].weight)||'');
+  const rv=sd=>(sd.reps!=null&&sd.reps!=='')?sd.reps:defReps;
+  const wv=sd=>(sd.weight!=null&&sd.weight!=='')?sd.weight:defWt;
   let h=`<div class="set-logger-lbl">Log your sets${lastSets?` <span style="color:var(--mu2);font-weight:500;text-transform:none;letter-spacing:0">· vs ${fmtDate(lastS.date)}</span>`:''}</div>
   <div class="set-hdr"><div>Set</div><div>Reps</div><div>Lbs</div><div>✓</div><div>✕</div></div>`;
   for(let j=0;j<tot;j++){
-    const k=`${tk}-${ei}-${j}`,sd=setData[k]||{};
+    const k=sk(tk,uid,j),sd=setData[k]||{};
     const lref=lastSets&&lastSets[j];
     h+=`<div class="set-row" id="sr-${d}-${ei}-${j}">
       <div class="set-num">${j+1}</div>
       <div class="stepper">
-        <button class="stp" onclick="stepRep('${tk}',${d},${ei},${j},-1)">−</button>
-        <input class="set-inp" type="number" inputmode="numeric" id="rr-${d}-${ei}-${j}" placeholder="${lref?lref.reps:((ex.reps+'').split('-')[0]||'12')}" value="${sd.reps||''}" min="0" max="300" onchange="saveSD('${tk}',${d},${ei},${j})">
-        <button class="stp" onclick="stepRep('${tk}',${d},${ei},${j},1)">+</button>
+        <button class="stp" onclick="stepRep('${tk}','${uid}',${d},${ei},${j},-1)">−</button>
+        <input class="set-inp" type="number" inputmode="numeric" id="rr-${d}-${ei}-${j}" value="${rv(sd)}" min="0" max="300" onchange="saveSD('${tk}','${uid}',${d},${ei},${j})">
+        <button class="stp" onclick="stepRep('${tk}','${uid}',${d},${ei},${j},1)">+</button>
       </div>
       <div class="stepper">
-        <button class="stp" onclick="stepWt('${tk}',${d},${ei},${j},-2.5)">−</button>
-        <input class="set-inp" type="number" inputmode="decimal" id="rw-${d}-${ei}-${j}" placeholder="${lref&&lref.weight!=null&&lref.weight!==''?lref.weight:'lbs'}" value="${sd.weight||''}" min="0" max="999" step="2.5" onchange="saveSD('${tk}',${d},${ei},${j})">
-        <button class="stp" onclick="stepWt('${tk}',${d},${ei},${j},2.5)">+</button>
+        <button class="stp" onclick="stepWt('${tk}','${uid}',${d},${ei},${j},-2.5)">−</button>
+        <input class="set-inp" type="number" inputmode="decimal" id="rw-${d}-${ei}-${j}" placeholder="lbs" value="${wv(sd)}" min="0" max="999" step="2.5" onchange="saveSD('${tk}','${uid}',${d},${ei},${j})">
+        <button class="stp" onclick="stepWt('${tk}','${uid}',${d},${ei},${j},2.5)">+</button>
       </div>
-      <button class="set-done-btn${sd.done?' done':''}" id="sdb-${d}-${ei}-${j}" onclick="markDone('${tk}',${d},${ei},${j},${ex.rest})">${sd.done?'✓':'○'}</button>
-      <button class="set-del-btn" onclick="deleteSetRow('${tk}',${d},${ei},${j})">✕</button>
+      <button class="set-done-btn${sd.done?' done':''}" id="sdb-${d}-${ei}-${j}" onclick="markDone('${tk}','${uid}',${d},${ei},${j},${ex.rest})">${sd.done?'✓':'○'}</button>
+      <button class="set-del-btn" onclick="deleteSetRow('${tk}','${uid}',${d},${ei},${j})">✕</button>
     </div>${lref?`<div style="font-size:10px;color:var(--mu2);padding:0 2px 5px 22px">last: ${lref.reps||0}×${lref.weight||0} lb ${sd.done?deltaBadge(sd,lref):''}</div>`:''}`;
   }
-  h+=`<button class="add-set-btn" onclick="addSet('${tk}',${d},${ei})">+ Add set</button>`;
+  h+=`<button class="add-set-btn" onclick="addSet('${tk}','${uid}',${d},${ei})">+ Add set</button>`;
   return h;
 }
 // ── MINI SET LOGGER (FIX 1+2) ────────────────────────────────────────────
@@ -2233,46 +2258,40 @@ function buildMiniLogger(d,mi,mk,msd){
   h+=`<button class="add-set-btn" onclick="addMiniSet('${mk}',${d},${mi})">+ Add set</button>`;
   return h;
 }
-// SET OPERATIONS
-function saveSD(tk,d,ei,j){
-  const k=`${tk}-${ei}-${j}`;if(!setData[k])setData[k]={};
+// SET OPERATIONS — keyed by stable uid (survives add/remove/reorder)
+function saveSD(tk,uid,d,ei,j){
+  const k=sk(tk,uid,j);if(!setData[k])setData[k]={};
   const r=document.getElementById(`rr-${d}-${ei}-${j}`);const w=document.getElementById(`rw-${d}-${ei}-${j}`);
   setData[k].reps=r?r.value:'';setData[k].weight=w?w.value:'';
   ls('sd9',setData);sbSaveSD(k,setData[k]);
 }
-// Stepper +/- for reps & weight. Empty field starts from the placeholder (last
-// time's value) so one tap of + gives last+1. Saves through saveSD.
-function stepRep(tk,d,ei,j,delta){
+function stepRep(tk,uid,d,ei,j,delta){
   const inp=document.getElementById(`rr-${d}-${ei}-${j}`);if(!inp)return;
   let v=parseInt(inp.value!==''?inp.value:inp.placeholder)||0;
-  inp.value=Math.max(0,v+delta);saveSD(tk,d,ei,j);
+  inp.value=Math.max(0,v+delta);saveSD(tk,uid,d,ei,j);
 }
-function stepWt(tk,d,ei,j,delta){
+function stepWt(tk,uid,d,ei,j,delta){
   const inp=document.getElementById(`rw-${d}-${ei}-${j}`);if(!inp)return;
   let v=parseFloat(inp.value!==''?inp.value:inp.placeholder)||0;
-  inp.value=Math.max(0,Math.round((v+delta)*10)/10);saveSD(tk,d,ei,j);
+  inp.value=Math.max(0,Math.round((v+delta)*10)/10);saveSD(tk,uid,d,ei,j);
 }
 let restTimers={};
-function markDone(tk,d,ei,j,rest){
-  saveSD(tk,d,ei,j);
-  const k=`${tk}-${ei}-${j}`;if(!setData[k])setData[k]={};
+function markDone(tk,uid,d,ei,j,rest){
+  saveSD(tk,uid,d,ei,j);
+  const k=sk(tk,uid,j);if(!setData[k])setData[k]={};
   setData[k].done=!setData[k].done;
   ls('sd9',setData);sbSaveSD(k,setData[k]);
-  // PR detection: toast when this completed set beats the historical best AND
-  // every earlier done set of this exercise in the current session.
   if(setData[k].done){
     const exN=(getExOrder(d,tk)[ei]||{}).name;
     const e=est1RM(setData[k].weight,setData[k].reps);
     if(exN&&e>0){
       const pr=exPR(exN);let sessBest=0;
-      for(let jj=0;jj<40;jj++){const kk=`${tk}-${ei}-${jj}`;if(kk!==k&&setData[kk]&&setData[kk].done)sessBest=Math.max(sessBest,est1RM(setData[kk].weight,setData[kk].reps));}
+      for(let jj=0;jj<40;jj++){const kk=sk(tk,uid,jj);if(kk!==k&&setData[kk]&&setData[kk].done)sessBest=Math.max(sessBest,est1RM(setData[kk].weight,setData[kk].reps));}
       if(e>(pr?pr.e1rm:0)&&e>sessBest)showToast('🎉 New PR · '+exN,setData[k].weight+' lb × '+setData[k].reps+' ≈ '+e+' lb 1RM');
     }
   }
-  // Update button
   const btn=document.getElementById(`sdb-${d}-${ei}-${j}`);
   if(btn){btn.className='set-done-btn'+(setData[k].done?' done':'');btn.textContent=setData[k].done?'✓':'○';btn.classList.add('pop');setTimeout(()=>btn.classList.remove('pop'),250);}
-  // Full recount — correctly handles both check AND uncheck
   refreshExCard(d,ei,tk);
   if(setData[k].done&&rest>0)startRest(d,ei,rest);else stopRest(d,ei);
   updateRing(d,tk);
@@ -2281,10 +2300,10 @@ function markDone(tk,d,ei,j,rest){
 function refreshExCard(d,ei,tk){
   const allExs=getExOrder(d,tk);
   const ex=allExs[ei];if(!ex)return;
-  const p=parseInt(ex.sets)||3;
+  const uid=ex._uid;const p=parseInt(ex.sets)||3;
   let lc=0;
   for(let jj=0;jj<p+10;jj++){
-    if(setData[`${tk}-${ei}-${jj}`]&&setData[`${tk}-${ei}-${jj}`].done)lc++;
+    if(setData[sk(tk,uid,jj)]&&setData[sk(tk,uid,jj)].done)lc++;
   }
   const card=document.getElementById(`exc-${d}-${ei}`);
   if(!card)return;
@@ -2302,18 +2321,17 @@ function refreshExCard(d,ei,tk){
   }
 }
 
-function deleteSetRow(tk,d,ei,j){
-  const k=`${tk}-${ei}-${j}`;delete setData[k];ls('sd9',setData);sbDelSD(k);
-  // Use effective list (incl. custom-added/reordered), NOT raw SCH — fixes
-  // no-refresh on added exercises where SCH[d].exercises[ei] is undefined.
+function deleteSetRow(tk,uid,d,ei,j){
+  const k=sk(tk,uid,j);delete setData[k];ls('sd9',setData);sbDelSD(k);
   const ex=getExOrder(d,tk)[ei];
   const sl=document.getElementById(`sl-${d}-${ei}`);if(sl&&ex)sl.innerHTML=buildSetLogger(d,ei,ex,tk);
   updateRing(d,tk);
 }
-function addSet(tk,d,ei){
+function addSet(tk,uid,d,ei){
   const ex=getExOrder(d,tk)[ei];const p=parseInt(ex&&ex.sets)||3;
-  let n=p;while(setData[`${tk}-${ei}-${n}`])n++;
-  setData[`${tk}-${ei}-${n}`]={reps:'',weight:'',done:false};ls('sd9',setData);sbSaveSD(`${tk}-${ei}-${n}`,setData[`${tk}-${ei}-${n}`]);
+  let n=p;while(setData[sk(tk,uid,n)])n++;
+  const k=sk(tk,uid,n);
+  setData[k]={reps:'',weight:'',done:false};ls('sd9',setData);sbSaveSD(k,setData[k]);
   const sl=document.getElementById(`sl-${d}-${ei}`);if(sl&&ex)sl.innerHTML=buildSetLogger(d,ei,ex,tk);
 }
 function startRest(d,ei,sec){
@@ -2326,15 +2344,12 @@ function startRest(d,ei,sec){
 function stopRest(d,ei){const id=restTimers[`${d}-${ei}`];if(id){clearInterval(id);delete restTimers[`${d}-${ei}`];}const rt=document.getElementById(`rt-${d}-${ei}`);if(rt)rt.classList.remove('show');}
 function skipRest(d,ei){stopRest(d,ei);}
 function updateRing(d,tk){
-  const s=SCH[d];
-  const removedSet=new Set(JSON.parse(localStorage.getItem(`removed-exs-${tk}-${d}`)||'[]'));
-  const addedExs=JSON.parse(localStorage.getItem(`added-exs-${tk}-${d}`)||'[]');
-  const allExs=[...s.exercises.filter((_,i)=>!removedSet.has(i)),...addedExs];
+  const allExs=getExOrder(d,tk);
   const total=allExs.length;
   // An exercise counts as done when it has 3+ completed sets
-  const done=allExs.filter((_,i)=>{
-    let cnt=0;const p=parseInt(_.sets)||3;
-    for(let j=0;j<p+10;j++){if(setData[`${tk}-${i}-${j}`]&&setData[`${tk}-${i}-${j}`].done)cnt++;}
+  const done=allExs.filter(ex=>{
+    let cnt=0;const p=parseInt(ex.sets)||3;
+    for(let j=0;j<p+10;j++){if(setData[sk(tk,ex._uid,j)]&&setData[sk(tk,ex._uid,j)].done)cnt++;}
     return cnt>=3;
   }).length;
   const arc=document.getElementById('ringArc');const rn=document.getElementById('ringNum');
